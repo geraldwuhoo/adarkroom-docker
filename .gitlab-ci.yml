@@ -1,0 +1,109 @@
+stages:
+  - clone
+  - build
+  - push
+
+variables:
+  DOCKERIO_MIRROR: hub.wuhoo.xyz
+  PROD_BRANCH: "1.4"
+  LATEST_BRANCH: main
+  UPSTREAM_PROJECT: adarkroom
+
+.clone:
+  stage: clone
+  image:
+    name: docker.io/bitnami/git:2.43.2-debian-11-r6
+  script:
+    - rm -rf ./${UPSTREAM_PROJECT}-${TARGET_BRANCH}/
+    - git clone -b ${TARGET_BRANCH} --single-branch "https://github.com/doublespeakgames/adarkroom.git" ${UPSTREAM_PROJECT}-${TARGET_BRANCH}
+    - export GIT_COMMIT="$(pushd "${UPSTREAM_PROJECT}-${TARGET_BRANCH}" 1>&2 && git rev-parse HEAD && popd 1>&2)"
+    - rm -rf ./${UPSTREAM_PROJECT}-${TARGET_BRANCH}/.git
+    - echo "${GIT_COMMIT}" | tee "commit_sha-${TARGET_BRANCH}"
+  artifacts:
+    untracked: true
+    expire_in: 1 day
+    paths:
+      - commit_sha-${TARGET_BRANCH}
+      - ${UPSTREAM_PROJECT}-${TARGET_BRANCH}/
+    when: on_success
+
+clone:prod:
+  extends: .clone
+  variables:
+    TARGET_BRANCH: "${PROD_BRANCH}"
+
+clone:latest:
+  extends: .clone
+  variables:
+    TARGET_BRANCH: "${LATEST_BRANCH}"
+
+.build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.20.1-debug
+    entrypoint: [""]
+  before_script:
+    - cp -v "${CI_PROJECT_DIR}"/.dockerignore "${CI_PROJECT_DIR}"/Dockerfile "${CI_PROJECT_DIR}/${UPSTREAM_PROJECT}-${TARGET_BRANCH}/"
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  script:
+    - >-
+      /kaniko/executor
+      --build-arg VERSION="$(cat "${CI_PROJECT_DIR}/commit_sha-${TARGET_BRANCH}")"
+      --registry-mirror "${DOCKERIO_MIRROR}"
+      --cache=true
+      --cache-repo "${CI_REGISTRY_IMAGE}/build-cache"
+      --cache-ttl 168h0m0s
+      --context "${CI_PROJECT_DIR}/${UPSTREAM_PROJECT}-${TARGET_BRANCH}"
+      --dockerfile "${CI_PROJECT_DIR}/${UPSTREAM_PROJECT}-${TARGET_BRANCH}/Dockerfile"
+      --destination=image
+      --no-push
+      --tarPath image-${TARGET_BRANCH}.tar
+  artifacts:
+    untracked: false
+    expire_in: 1 day
+    paths:
+      - image-${TARGET_BRANCH}.tar
+    when: on_success
+
+build:prod:
+  extends: .build
+  variables:
+    TARGET_BRANCH: "${PROD_BRANCH}"
+  needs:
+    - clone:prod
+
+build:latest:
+  extends: .build
+  variables:
+    TARGET_BRANCH: "${LATEST_BRANCH}"
+  needs:
+    - clone:latest
+
+.push:
+  stage: push
+  image:
+    name: gcr.io/go-containerregistry/crane/debug:v0.15.2
+    entrypoint: [""]
+  script:
+    - crane auth login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+    - crane push image-${TARGET_BRANCH}.tar ${CI_REGISTRY_IMAGE}:${TARGET_BRANCH}
+    - crane push image-${TARGET_BRANCH}.tar ${CI_REGISTRY_IMAGE}:${FRIENDLY_TAG}
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+
+push:prod:
+  extends: .push
+  variables:
+    TARGET_BRANCH: "${PROD_BRANCH}"
+    FRIENDLY_TAG: prod
+  needs:
+    - build:prod
+
+push:latest:
+  extends: .push
+  variables:
+    TARGET_BRANCH: "${LATEST_BRANCH}"
+    FRIENDLY_TAG: latest
+  needs:
+    - build:latest

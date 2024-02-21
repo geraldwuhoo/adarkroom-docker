@@ -51,9 +51,6 @@ clone:latest:
       /kaniko/executor
       --build-arg VERSION="$(cat "${CI_PROJECT_DIR}/commit_sha-${TARGET_BRANCH}")"
       --registry-mirror "${DOCKERIO_MIRROR}"
-      --cache=true
-      --cache-repo "${CI_REGISTRY_IMAGE}/build-cache"
-      --cache-ttl 168h0m0s
       --context "${CI_PROJECT_DIR}/${UPSTREAM_PROJECT}-${TARGET_BRANCH}"
       --dockerfile "${CI_PROJECT_DIR}/${UPSTREAM_PROJECT}-${TARGET_BRANCH}/Dockerfile"
       --destination=image

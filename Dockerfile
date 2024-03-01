@@ -1,4 +1,4 @@
-FROM docker.io/p3terx/darkhttpd:1.15
+FROM docker.io/p3terx/darkhttpd:1.16
 
 ARG VERSION
 

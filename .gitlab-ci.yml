@@ -12,7 +12,7 @@ variables:
 .clone:
   stage: clone
   image:
-    name: docker.io/bitnami/git:2.45.2-debian-12-r8
+    name: docker.io/bitnami/git:2.46.0-debian-12-r0
   script:
     - rm -rf ./${UPSTREAM_PROJECT}-${TARGET_BRANCH}/
     - git clone -b ${TARGET_BRANCH} --single-branch "https://github.com/doublespeakgames/adarkroom.git" ${UPSTREAM_PROJECT}-${TARGET_BRANCH}
